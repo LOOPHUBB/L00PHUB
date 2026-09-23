@@ -1,0 +1,623 @@
+-- Services
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local lp = Players.LocalPlayer
+
+-- Asset ID
+local IMAGE_ID = "rbxassetid://139225571995881"
+
+-- Load Fluent UI Library & Managers
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+
+-- Create Window (LOOPHUB) - 480x350 for spacious layout
+local Window = Fluent:CreateWindow({
+    Title = "LOOPHUB",
+    SubTitle = "v1.0",
+    TabWidth = 110,
+    Size = UDim2.fromOffset(480, 350),
+    Acrylic = false,
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+----------------------------------------------------
+-- ULTRA-BRIGHT BACKGROUND & THEME ENFORCER
+----------------------------------------------------
+task.spawn(function()
+    task.wait(0.2)
+    local MainFrame = Window.Root
+    if MainFrame then
+        MainFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+
+        local BGImage = Instance.new("ImageLabel")
+        BGImage.Name = "LoopHubBG"
+        BGImage.Size = UDim2.new(1, 0, 1, 0)
+        BGImage.Position = UDim2.new(0, 0, 0, 0)
+        BGImage.Image = IMAGE_ID
+        BGImage.ScaleType = Enum.ScaleType.Crop
+        BGImage.BackgroundTransparency = 1
+        BGImage.ImageTransparency = 0
+        BGImage.ZIndex = 0
+        BGImage.Parent = MainFrame
+
+        if MainFrame:FindFirstChild("BrightOverlay") then MainFrame.BrightOverlay:Destroy() end
+        if MainFrame:FindFirstChild("DarkOverlay") then MainFrame.DarkOverlay:Destroy() end
+
+        RunService.RenderStepped:Connect(function()
+            for _, obj in ipairs(MainFrame:GetDescendants()) do
+                if obj:IsA("Frame") or obj:IsA("TextLabel") or obj:IsA("ImageLabel") then
+                    if obj.BackgroundColor3 == Color3.fromRGB(0, 120, 215) or obj.BackgroundColor3 == Color3.fromRGB(50, 150, 250) then
+                        obj.BackgroundColor3 = Color3.fromRGB(255, 30, 30)
+                    end
+                    if obj:IsA("TextLabel") then
+                        if obj.TextColor3 == Color3.fromRGB(0, 120, 215) then
+                            obj.TextColor3 = Color3.fromRGB(255, 30, 30)
+                        else
+                            obj.TextColor3 = Color3.fromRGB(255, 255, 255)
+                        end
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+----------------------------------------------------
+-- FLOATING TOGGLE BUTTON
+----------------------------------------------------
+if CoreGui:FindFirstChild("LOOPHUB_Toggle") then
+    CoreGui["LOOPHUB_Toggle"]:Destroy()
+end
+
+local ToggleScreen = Instance.new("ScreenGui")
+ToggleScreen.Name = "LOOPHUB_Toggle"
+ToggleScreen.Parent = CoreGui
+ToggleScreen.ResetOnSpawn = false
+
+local ToggleBtn = Instance.new("ImageButton")
+ToggleBtn.Name = "OpenIcon"
+ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
+ToggleBtn.Position = UDim2.new(0.02, 0, 0.4, 0)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+ToggleBtn.BorderColor3 = Color3.fromRGB(255, 30, 30)
+ToggleBtn.BorderSizePixel = 2
+ToggleBtn.Image = IMAGE_ID
+ToggleBtn.ScaleType = Enum.ScaleType.Crop
+ToggleBtn.Active = true
+ToggleBtn.Draggable = true
+ToggleBtn.Parent = ToggleScreen
+
+local Corner = Instance.new("UICorner")
+Corner.CornerRadius = UDim.new(0, 10)
+Corner.Parent = ToggleBtn
+
+ToggleBtn.MouseButton1Click:Connect(function()
+    Window:Minimize()
+end)
+
+----------------------------------------------------
+-- TABS SETUP
+----------------------------------------------------
+local Tabs = {
+    ServerHopper = Window:AddTab({ Title = "Server Hopper", Icon = "server" }),
+    Scripts = Window:AddTab({ Title = "Scripts", Icon = "code" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" }),
+    Owner = Window:AddTab({ Title = "Owner", Icon = "user" }),
+    Config = Window:AddTab({ Title = "Config", Icon = "file-text" }),
+}
+
+----------------------------------------------------
+-- 1. SERVER HOPPER TAB
+----------------------------------------------------
+local HopperSection = Tabs.ServerHopper:AddSection("🌐 SERVER HOPPER")
+
+local HopperEngine = {
+    IsAutoHopping = false,
+    HOP_INTERVAL = 5
+}
+
+function HopperEngine:Get1PlayerServers()
+    local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100"):format(game.PlaceId)
+    local ok, res = pcall(function() return game:HttpGet(url) end)
+    if not ok or not res then return {} end
+    local ok2, data = pcall(function() return HttpService:JSONDecode(res) end)
+    if not ok2 or not data or not data.data then return {} end
+
+    local list = {}
+    for _, s in ipairs(data.data) do
+        -- Exactly 1 player + not the server we are currently in
+        if s.playing == 1 and s.id ~= game.JobId then
+            table.insert(list, s)
+        end
+    end
+    return list
+end
+
+function HopperEngine:Hop()
+    Fluent:Notify({
+        Title = "Server Hopper",
+        Content = "Searching for 1-player server...",
+        Duration = 3
+    })
+
+    local servers = self:Get1PlayerServers()
+    if #servers == 0 then
+        Fluent:Notify({
+            Title = "Server Hopper",
+            Content = "None found — retrying...",
+            Duration = 3
+        })
+        return false
+    end
+
+    local pick = servers[math.random(1, #servers)]
+    Fluent:Notify({
+        Title = "Server Hopper",
+        Content = "Joining (" .. pick.playing .. " player)...",
+        Duration = 3
+    })
+
+    pcall(function()
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, pick.id, lp)
+    end)
+    return true
+end
+
+HopperSection:AddButton({
+    Title = "🔎 Find 1-Player Server",
+    Description = "Instantly hop to a server with exactly 1 player",
+    Callback = function()
+        task.spawn(function()
+            HopperEngine:Hop()
+        end)
+    end
+})
+
+local AutoHopToggle = HopperSection:AddToggle("AutoHopToggle", {
+    Title = "Auto Server Hop",
+    Description = "Automatically search every 5s for 1-player servers",
+    Default = false
+})
+
+AutoHopToggle:OnChanged(function()
+    HopperEngine.IsAutoHopping = AutoHopToggle.Value
+    
+    if HopperEngine.IsAutoHopping then
+        Fluent:Notify({
+            Title = "Server Hopper",
+            Content = "Auto Hop: ENABLED (Searching every " .. HopperEngine.HOP_INTERVAL .. "s)",
+            Duration = 3
+        })
+    else
+        Fluent:Notify({
+            Title = "Server Hopper",
+            Content = "Auto Hop: DISABLED",
+            Duration = 3
+        })
+    end
+end)
+
+-- Dedicated Auto Hop Execution Loop
+task.spawn(function()
+    while true do
+        if HopperEngine.IsAutoHopping then
+            for i = HopperEngine.HOP_INTERVAL, 1, -1 do
+                if not HopperEngine.IsAutoHopping then break end
+                task.wait(1)
+            end
+            if HopperEngine.IsAutoHopping then
+                HopperEngine:Hop()
+                task.wait(8)
+            end
+        else
+            task.wait(0.5)
+        end
+    end
+end)
+
+----------------------------------------------------
+-- 2. SCRIPTS TAB
+----------------------------------------------------
+local NoKeySection = Tabs.Scripts:AddSection("🟢 NO KEY REQUIRED")
+local KeySection = Tabs.Scripts:AddSection("🔑 KEY REQUIRED")
+
+-- No Key Required
+NoKeySection:AddButton({
+    Title = "Kira-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/LSSOPS/OpenSource/refs/heads/main/KiraHub_Steal_An_Egg.lua"))()
+    end
+})
+
+NoKeySection:AddButton({
+    Title = "LennonV2-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://api.luarmor.net/files/v4/loaders/4595fe31a5f7a8b4f4dd7071f3119ef7.lua"))()
+    end
+})
+
+NoKeySection:AddButton({
+    Title = "MirandaV2-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/miirandahub/loader/refs/heads/main/mirandaafk.lua"))()
+    end
+})
+
+NoKeySection:AddButton({
+    Title = "Rene-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/sabscrip-arch/srver/refs/heads/main/Stealanegg"))()
+    end
+})
+
+NoKeySection:AddButton({
+    Title = "Decode-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/ItzYumi/Decode/refs/heads/main/DE%3ACODE.lua", true))()
+    end
+})
+
+NoKeySection:AddButton({
+    Title = "Foxname-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/caomod2077/Script/refs/heads/main/Fn-stealanegg.lua"))()
+    end
+})
+
+NoKeySection:AddButton({
+    Title = "Sena-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet('https://raw.githubusercontent.com/senarblx/sena/refs/heads/main/senav3go'))()
+    end
+})
+
+NoKeySection:AddButton({
+    Title = "Lkz-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/LucasggkX/LKZ-Hub/refs/heads/main/Loader.lua"))()
+    end
+})
+
+NoKeySection:AddButton({
+    Title = "Blyxo-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://flowauth.net/v1/loaders/69d3463240384f3a73fbe32c178093a2.lua"))()
+    end
+})
+
+NoKeySection:AddButton({
+    Title = "Voldshell-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/VoidShell-null/VoidShell-Hub/refs/heads/main/Scripts/StealAnEgg.luau"))()
+    end
+})
+
+NoKeySection:AddButton({
+    Title = "Oxide-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/xulfo/Oxide-Loader/main/Main.lua"))()
+    end
+})
+
+NoKeySection:AddButton({
+    Title = "Chili-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/tienkhanh1/spicy/main/Chilli.lua"))()
+    end
+})
+
+NoKeySection:AddButton({
+    Title = "Vincitore-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/idk953072-crypto/Steal-an-Egg/refs/heads/main/vincitore "))()
+    end
+})
+
+NoKeySection:AddButton({
+    Title = "Hoshi-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://hoshihub.site/loader.lua"))()
+    end
+})
+
+NoKeySection:AddButton({
+    Title = "Shader-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/robloxscripts2026/simple-shader/refs/heads/main/lua"))()
+    end
+})
+
+-- Key Required
+KeySection:AddButton({
+    Title = "CloverV2-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://cloverhub.app/clover.lua"))()
+    end
+})
+
+KeySection:AddButton({
+    Title = "Speed-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/AhmadV99/Speed-Hub-X/main/Speed%20Hub%20X.lua", true))()
+    end
+})
+
+KeySection:AddButton({
+    Title = "Ajjans-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://api.luarmor.net/files/v4/loaders/36107afd3107e8d841f9d1a69e2465d4.lua"))()
+    end
+})
+
+KeySection:AddButton({
+    Title = "Chiyo-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/kaisenlmao/loader/refs/heads/main/chiyo.lua"))()
+    end
+})
+
+KeySection:AddButton({
+    Title = "Solix-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/bao8jl/solixhub/main/loader"))()
+    end
+})
+
+KeySection:AddButton({
+    Title = "Omg-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Omgshit/Scripts/main/MainLoader.lua"))()
+    end
+})
+
+KeySection:AddButton({
+    Title = "Nasi-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/JualNasiRendang/loader/refs/heads/main/main.lua"))()
+    end
+})
+
+KeySection:AddButton({
+    Title = "Night-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/WhiteX1208/Scripts/refs/heads/main/StealEggOnly.luau"))()
+    end
+})
+
+KeySection:AddButton({
+    Title = "Fyy-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://FyyCommunity.my.id"))()
+    end
+})
+
+KeySection:AddButton({
+    Title = "Zorein-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://zeroinhub.com/api/script"))()
+    end
+})
+
+KeySection:AddButton({
+    Title = "Bigfoot-hub",
+    Description = "",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/hanniii1/Loader/refs/heads/main/BFLoader.lua"))()
+    end
+})
+
+----------------------------------------------------
+-- 3. SETTINGS TAB
+----------------------------------------------------
+local MovementSection = Tabs.Settings:AddSection("⚡ MOVEMENT")
+
+local MovementEngine = {
+    Enabled = false,
+    TargetSpeed = 16,
+    DefaultSpeed = 16
+}
+
+local SpeedToggle = MovementSection:AddToggle("BypassSpeedToggle", {
+    Title = "Bypass Speed",
+    Description = "Toggle velocity movement engine",
+    Default = false
+})
+
+SpeedToggle:OnChanged(function()
+    MovementEngine.Enabled = SpeedToggle.Value
+    if not MovementEngine.Enabled and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
+        lp.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = MovementEngine.DefaultSpeed
+    end
+end)
+
+local SpeedSlider = MovementSection:AddSlider("WalkSpeedSlider", {
+    Title = "Speed Multiplier",
+    Description = "Adjust target movement velocity",
+    Default = 16,
+    Min = 16,
+    Max = 300,
+    Rounding = 0,
+    Callback = function(Value)
+        MovementEngine.TargetSpeed = Value
+    end
+})
+
+RunService.Stepped:Connect(function()
+    if not MovementEngine.Enabled then return end
+    
+    local char = lp.Character
+    if not char then return end
+    
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    
+    if humanoid and root and humanoid.Health > 0 then
+        humanoid.WalkSpeed = MovementEngine.TargetSpeed
+        
+        if humanoid.MoveDirection.Magnitude > 0 then
+            local velocityDir = humanoid.MoveDirection.Unit
+            local currentY = root.AssemblyLinearVelocity.Y
+            local velocityFactor = (MovementEngine.TargetSpeed - humanoid.WalkSpeed) + MovementEngine.TargetSpeed
+            
+            root.AssemblyLinearVelocity = Vector3.new(
+                velocityDir.X * velocityFactor,
+                currentY,
+                velocityDir.Z * velocityFactor
+            )
+        end
+    end
+end)
+
+local InfiniteJumpEnabled = false
+
+local InfJumpToggle = MovementSection:AddToggle("InfJump", {
+    Title = "Infinite Jump",
+    Description = "Jump continuously in mid-air",
+    Default = false
+})
+
+InfJumpToggle:OnChanged(function()
+    InfiniteJumpEnabled = InfJumpToggle.Value
+end)
+
+UserInputService.JumpRequest:Connect(function()
+    if InfiniteJumpEnabled and lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
+        lp.Character:FindFirstChildOfClass("Humanoid"):ChangeState("Jumping")
+    end
+end)
+
+----------------------------------------------------
+-- 4. OWNER TAB
+----------------------------------------------------
+local OwnerSection = Tabs.Owner:AddSection("👤 OWNER INFORMATION")
+
+OwnerSection:AddButton({
+    Title = "TIKTOK - RΛIZEN",
+    Description = "Click to copy TikTok handle",
+    Callback = function()
+        setclipboard("RΛIZEN")
+        Fluent:Notify({
+            Title = "Owner Info",
+            Content = "Copied 'RΛIZEN' to clipboard!",
+            Duration = 3
+        })
+    end
+})
+
+OwnerSection:AddButton({
+    Title = "DISCORD - Tjay",
+    Description = "Click to copy Discord username",
+    Callback = function()
+        setclipboard("Tjay")
+        Fluent:Notify({
+            Title = "Owner Info",
+            Content = "Copied 'Tjay' to clipboard!",
+            Duration = 3
+        })
+    end
+})
+
+OwnerSection:AddButton({
+    Title = "DISCORD SERVER",
+    Description = "Click to copy Discord server invite link",
+    Callback = function()
+        setclipboard("https://discord.gg/WjvfpZFjs")
+        Fluent:Notify({
+            Title = "Owner Info",
+            Content = "Copied Discord server link to clipboard!",
+            Duration = 3
+        })
+    end
+})
+
+OwnerSection:AddButton({
+    Title = "PROMOTER - Still nothing",
+    Description = "Click to copy promoter status",
+    Callback = function()
+        setclipboard("Still nothing")
+        Fluent:Notify({
+            Title = "Owner Info",
+            Content = "Copied promoter info to clipboard!",
+            Duration = 3
+        })
+    end
+})
+
+----------------------------------------------------
+-- 5. CONFIG TAB
+----------------------------------------------------
+local ConfigSection = Tabs.Config:AddSection("⚙️ CONFIGURATION MANAGER")
+
+ConfigSection:AddButton({
+    Title = "Save Config",
+    Description = "Saves current settings to disk",
+    Callback = function()
+        pcall(function()
+            SaveManager:Save("default")
+        end)
+        Fluent:Notify({
+            Title = "Configuration",
+            Content = "Configuration saved successfully!",
+            Duration = 3
+        })
+    end
+})
+
+local AutoSaveToggle = ConfigSection:AddToggle("AutoSaveToggle", {
+    Title = "Auto-save on change",
+    Description = "Automatically save settings when altered",
+    Default = true
+})
+
+AutoSaveToggle:OnChanged(function()
+    SaveManager:SetAutoSave(AutoSaveToggle.Value)
+    Fluent:Notify({
+        Title = "Configuration",
+        Content = "Auto-save " .. (AutoSaveToggle.Value and "Enabled" or "Disabled"),
+        Duration = 2
+    })
+end)
+
+-- Setup Save & Interface Managers
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetFolder("LOOPHUB/configs")
+SaveManager:BuildConfigSection(Tabs.Config)
+InterfaceManager:BuildInterfaceSection(Tabs.Config)
+
+-- Load existing config on startup
+SaveManager:LoadAutoloadConfig()
